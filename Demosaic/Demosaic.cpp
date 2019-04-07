@@ -1,64 +1,80 @@
 #include "Demosaic.h"
 
-namespace Demo {
-	Demosaic::Demosaic()
+namespace POL {
+
+	Demosaic::Demosaic(int typ)
 	{
-		typ = "";
+		m_parameters = new ContainerDem::Parameters();
+		m_typ = typ;
 	}
 
 	Demosaic::~Demosaic()
 	{
+		delete m_parameters;
 	}
+	
 
-	void Demosaic::setMethod(intTypes typ) {
-		switch (typ)
-		{
-		case Demo::Demosaic::ADAPTIVE:
-			this->typ = "adaptive";
-			break;
-		case Demo::Demosaic::BILINEAR:
-			this->typ = "bilinear";
-			break;
-		default:
-			break;
-		}
-	}
-	int Demosaic::exeDemosaic() {
-		this->Initialize();
-
-		if (this->myParameters.Input.size() != 1) {
-			cerr << "there is no valid input size" << endl;
-			return -1;
+	void Demosaic::setInput(int argv, char **argc) {
+		//check if the input arguement is passed
+		//only single and raw polarization image file is allowed for demosaicing
+		if (argv != 2) {
+			error("Invalid input detected\n");
+			
 		}
 
-		if (this->typ == "adaptive")interpolateAdaptive(this->myParameters.Input, this->myParameters.Output);
-		else if (this->typ == "bilinear")interpolateBilinear(this->myParameters.Input, this->myParameters.Output);
+		//declare variable for the image buffer and read image from file
+		Mat data = imread(argc[1]);
+
+		//convert image to gray
+		cvtColor(data, myParameters()->Input, CV_BGR2GRAY);
+
+	}
+	void Demosaic::exeDemosaic() {
+		Initialize();
+
+		if (myParameters()->Input.empty()) {
+			error("there is no valid input for the function: ", "exeDemosaic()");
+		}
+
+		if (m_typ == Demosaic::ADAPTIVE)interpolateAdaptive(myParameters()->Input, myParameters()->Output);
+		else if (m_typ == Demosaic::BILINEAR)interpolateBilinear(myParameters()->Input, myParameters()->Output);
+		else if (m_typ == Demosaic::DOWNSAMPLE) {
+			imgSplit(myParameters()->Input, myParameters()->Output);
+			map<int, cv::Mat>mymap;
+
+			mymap[myParameters()->orientPolAngleR0C0] = myParameters()->Output[0].clone();
+			mymap[myParameters()->orientPolAngleR1C0] = myParameters()->Output[1].clone();
+			mymap[myParameters()->orientPolAngleR0C1] = myParameters()->Output[2].clone();
+			mymap[myParameters()->orientPolAngleR1C1] = myParameters()->Output[3].clone();
+
+			myParameters()->Output.clear();
+			myParameters()->Output.push_back(mymap.at(0).clone());
+			myParameters()->Output.push_back(mymap.at(45).clone());
+			myParameters()->Output.push_back(mymap.at(90).clone());
+			myParameters()->Output.push_back(mymap.at(135).clone());
+		}
 		else {
-			cerr << "there is no valid method type: please check the implemented methods" << endl;
-			return -1;
+			error("there is no valid method m_type for demosaicing: please check the implemented methods");
 		}
 
-		this->myParameters.Output[0].convertTo(this->myParameters.Output[0], CV_8U);
-		this->myParameters.Output[1].convertTo(this->myParameters.Output[1], CV_8U);
-		this->myParameters.Output[2].convertTo(this->myParameters.Output[2], CV_8U);
-		this->myParameters.Output[3].convertTo(this->myParameters.Output[3], CV_8U);
+		if (myParameters()->Output.empty())
+			error("invalid output image buffer for demosaic container: ","exeDemosaic()");
 
-		imwrite("Angle0.png", this->myParameters.Output.at(0));
-		imwrite("Angle45.png", this->myParameters.Output.at(1));
-		imwrite("Angle90.png", this->myParameters.Output.at(2));
-		imwrite("Angle135.png", this->myParameters.Output.at(3));
-		return 0;
+		myParameters()->Output[0].convertTo(myParameters()->Output[0], CV_8U);
+		myParameters()->Output[1].convertTo(myParameters()->Output[1], CV_8U);
+		myParameters()->Output[2].convertTo(myParameters()->Output[2], CV_8U);
+		myParameters()->Output[3].convertTo(myParameters()->Output[3], CV_8U);
 	}
 
 
-	int  Demosaic::interpolateAdaptive(std::vector<cv::Mat>input, std::vector<cv::Mat>&output) {
-
-		int rows = input[0].rows;
-		int cols = input[0].cols;
+	void  Demosaic::interpolateAdaptive(const cv::Mat &input, std::vector<cv::Mat>&output) {
+		if (input.empty())error("invalid input image with the function call: ", "interpolateAdaptive()");
+		int rows = input.rows;
+		int cols = input.cols;
 		Mat im0, im45, im135, im90;
 
 		//split the image to calculate imtensity
-		imgSplit(input.at(0), output);
+		imgSplit(input, output);
 
 
 		output.at(0).convertTo(output.at(0), CV_64FC1);
@@ -74,13 +90,15 @@ namespace Demo {
 		im90 = im0.clone();
 		im135 = im0.clone();
 
-		input.push_back(im0);
-		input.push_back(im45);
-		input.push_back(im90);
-		input.push_back(im135);
+		std::vector<cv::Mat>tmp;
+		tmp.push_back(input.clone());
+		tmp.push_back(im0);
+		tmp.push_back(im45);
+		tmp.push_back(im90);
+		tmp.push_back(im135);
 
 		S0.convertTo(S0, CV_64FC1);
-		input[0].convertTo(input[0], CV_64FC1);
+		tmp[0].convertTo(tmp[0], CV_64FC1);
 
 		//defined the kernels
 		double kernelv[9] = {
@@ -118,12 +136,12 @@ namespace Demo {
 		//calc the missing pixels
 		//pad images
 		int pad = 1;
-		Mat img_pad(rows + 2 * pad, cols + 2 * pad, input[0].type(), Scalar::all(0));
-		Mat int_pad(rows + 2 * pad, cols + 2 * pad, input[0].type(), Scalar::all(0));
+		Mat img_pad(rows + 2 * pad, cols + 2 * pad, tmp[0].type(), Scalar::all(0));
+		Mat int_pad(rows + 2 * pad, cols + 2 * pad, tmp[0].type(), Scalar::all(0));
 		Mat ori_pad(rows + 2 * pad, cols + 2 * pad, orient.type(), Scalar::all(0));
 
-		input[0].copyTo(img_pad(Rect(pad, pad, cols, rows)));
-		cv::resize(S0, S0, input[0].size(), 0.0, 0.0, CV_INTER_CUBIC);
+		tmp[0].copyTo(img_pad(Rect(pad, pad, cols, rows)));
+		cv::resize(S0, S0, tmp[0].size(), 0.0, 0.0, CV_INTER_CUBIC);
 		S0.copyTo(int_pad(Rect(pad, pad, cols, rows)));
 		orient.copyTo(ori_pad(Rect(pad, pad, cols, rows)));
 
@@ -132,8 +150,6 @@ namespace Demo {
 
 		for (int r = pad; r < rows - pad; ++r) {
 			for (int c = pad; c < cols - pad; ++c) {
-
-				try {
 
 
 					//create mask
@@ -192,121 +208,79 @@ namespace Demo {
 						if (orVal.at<double>(k) == 1 || orVal.at<double>(k) == 2 || orVal.at<double>(k) == 3 || orVal.at<double>(k) == 4) {
 							//for diagonal
 							//cout << orVal<< endl;
-							input[orVal.at<double>(0, 0)].at<double>(r - 1, c - 1) = d;
-							input[orVal.at<double>(2, 2)].at<double>(r - 1, c - 1) = d;
-							input[orVal.at<double>(0, 2)].at<double>(r - 1, c - 1) = d;
-							input[orVal.at<double>(2, 0)].at<double>(r - 1, c - 1) = d;
+							if (tmp.size() != 5)error("range error at vector tmp with function call: ", "interpolateAdaptive()");
+							tmp[orVal.at<double>(0, 0)].at<double>(r - 1, c - 1) = d;
+							tmp[orVal.at<double>(2, 2)].at<double>(r - 1, c - 1) = d;
+							tmp[orVal.at<double>(0, 2)].at<double>(r - 1, c - 1) = d;
+							tmp[orVal.at<double>(2, 0)].at<double>(r - 1, c - 1) = d;
 
 							//for vertical
-							input[orVal.at<double>(0, 1)].at<double>(r - 1, c - 1) = v;
-							input[orVal.at<double>(2, 1)].at<double>(r - 1, c - 1) = v;
+							tmp[orVal.at<double>(0, 1)].at<double>(r - 1, c - 1) = v;
+							tmp[orVal.at<double>(2, 1)].at<double>(r - 1, c - 1) = v;
 
 							//for horizontal
-							input[orVal.at<double>(1, 0)].at<double>(r - 1, c - 1) = h;
-							input[orVal.at<double>(1, 2)].at<double>(r - 1, c - 1) = h;
+							tmp[orVal.at<double>(1, 0)].at<double>(r - 1, c - 1) = h;
+							tmp[orVal.at<double>(1, 2)].at<double>(r - 1, c - 1) = h;
 
 							//for center
-							input[orVal.at<double>(1, 1)].at<double>(r - 1, c - 1) = dRaw.at<double>(1, 1);
+							tmp[orVal.at<double>(1, 1)].at<double>(r - 1, c - 1) = dRaw.at<double>(1, 1);
 							break;
 						}
 					}
 
-				}
-				catch (exception e) {
-					cout << r << endl;
-					cout << c << endl;
-				}
+		
 
 			}
 		}
 
 		output.clear();
-		output.push_back(input.at(0).clone());
-		output.push_back(input.at(1).clone());
-		output.push_back(input.at(2).clone());
-		output.push_back(input.at(3).clone());
-
-		return 0;
+		if (tmp.at(1).empty())error("invalid output image at tmp.at(1) with the function call: ", "interpolateAdaptive()");
+		if (tmp.at(2).empty())error("invalid output image at tmp.at(2) with the function call: ", "interpolateAdaptive()");
+		if (tmp.at(3).empty())error("invalid output image at tmp.at(3) with the function call: ", "interpolateAdaptive()");
+		if (tmp.at(4).empty())error("invalid output image at tmp.at(4) with the function call: ", "interpolateAdaptive()");
+		output.push_back(tmp.at(1).clone());
+		output.push_back(tmp.at(2).clone());
+		output.push_back(tmp.at(3).clone());
+		output.push_back(tmp.at(4).clone());
 	}
 
-	int Demosaic::interpolateBilinear(std::vector<cv::Mat>input, std::vector<cv::Mat>&output) {
+	void Demosaic::interpolateBilinear(const cv::Mat &input, std::vector<cv::Mat>&output) {
 		Mat im0, im45, im90, im135;
-
+		if (input.empty())error("invalid input image with the function call: ", "interpolateBilinear()");
 		//separate the image to diffent angles
-		BtesSeparate(input.at(0), input);
+		std::vector<cv::Mat> output_tmp(4);
+		BtesSeparate(input, output_tmp);
 
-		BIInterpol(input.at(0), im0);
-		BIInterpol(input.at(1), im45);
-		BIInterpol(input.at(2), im90);
-		BIInterpol(input.at(3), im135);
+		//apply bilinear interpolation for each of the separated image
+		BIInterpol(output_tmp.at(0), im0);
+		BIInterpol(output_tmp.at(1), im45);
+		BIInterpol(output_tmp.at(2), im90);
+		BIInterpol(output_tmp.at(3), im135);
 
 		output.clear();
-		output.push_back(im0);
-		output.push_back(im45);
-		output.push_back(im90);
-		output.push_back(im135);
-		return 0;
-	}
-
-	void  Demosaic::imgSplit(const Mat input, std::vector<cv::Mat>&output) {
-		Mat im0, im45, im90, im135;
-		int rows = input.rows / 2;
-		int cols = input.cols / 2;
-
-		im0.release();
-		im0.create(rows, cols, input.type());
-		im45 = im0.clone();
-		im90 = im0.clone();
-		im135 = im0.clone();
-
-			for (int r = 0; r < rows; ++r) {
-				uchar *Pim0 = im0.ptr<uchar>(r);
-				uchar *Pim45 = im45.ptr<uchar>(r);
-				uchar *Pim90 = im90.ptr<uchar>(r);
-				uchar *Pim135 = im135.ptr<uchar>(r);
-				for (int c = 0; c < cols; ++c) {
-					//create mask
-					cv::Mat mask(2, 2, input.type());
-					cv::Rect rec(c * 2, r * 2, 2, 2);
-
-					//copy to mask
-					input(rec).copyTo(mask);
-
-					//copy to image
-					*Pim0 = mask.at<uchar>(0, 1);
-					*Pim45 = mask.at<uchar>(0, 0);
-					*Pim90 = mask.at<uchar>(1, 0);
-					*Pim135 = mask.at<uchar>(1, 1);
-
-					++Pim0;
-					++Pim45;
-					++Pim90;
-					++Pim135;
-
-
-				}
-			}
-		
-		output.clear();
+		if (im0.empty())error("invalid output image at im0 with the function call: ", "interpolateBilinear()");
+		if (im45.empty())error("invalid output image at im45 with the function call: ", "interpolateBilinear()");
+		if (im135.empty())error("invalid output image at im135 with the function call: ", "interpolateBilinear()");
+		if (im90.empty())error("invalid output image at im90 with the function call: ", "interpolateBilinear()");
 		output.push_back(im0);
 		output.push_back(im45);
 		output.push_back(im90);
 		output.push_back(im135);
 	}
 
-
-	void Demosaic::BIInterpol(const Mat input, Mat &output) {
-
+	void Demosaic::BIInterpol(const Mat &input, Mat &output) {
+		if (input.empty())error("invalid input image with the function call: ", "BIInterpol()");
 		int rows = input.rows;
 		int cols = input.cols;
 		output.create(rows, cols, CV_8U);
-		Mat mask(rows, cols, CV_8UC1, Scalar::all(1));
+
+		//create the kernel for bilinear interpolation
 
 		Mat kernel1B;
-		char kernel4[3 * 3] = { 1, 1,1,
+		char kernel[3 * 3] = { 1, 1,1,
 			1, 1,1,
 			1,1,1 };
-		kernel1B = cv::Mat(3, 3, CV_8U, kernel4).clone();
+		kernel1B = cv::Mat(3, 3, CV_8U, kernel).clone();
 
 		//pad the image
 		int border = kernel1B.rows / 2;
@@ -321,7 +295,8 @@ namespace Demo {
 
 		rows = Interpolated.rows;
 		cols = Interpolated.cols;
-
+		//loop through the image file using the //3-by-3 kernel and... 
+		//apply bilinear interpolation to recover the missing polarizer angle per pixel
 		for (int a = 0; a < (rows - 2 * border); a++)
 		{
 
@@ -355,7 +330,9 @@ namespace Demo {
 
 				}
 
-				sumall = (sum1 + sum2 + sum3) / 4;
+				sumall = (sum1 + sum2 + sum3) / 4; // we divide by 4 
+				// this is because at each 3-by-3 pixel size only 4 pixel are valid out of 9
+				//except towards the image border off course but the effect is negligible
 
 				*poutput = sumall;
 
@@ -364,6 +341,7 @@ namespace Demo {
 		}
 		rows = input.rows;
 		cols = input.cols;
+		//after we return the value of the original valid input to reduce the effect of interpolation artifacts
 		for (int a = 0; a < rows; a++)
 		{
 
@@ -372,13 +350,17 @@ namespace Demo {
 				if (input.at<uchar>(a, b) != 0)output.at<uchar>(a, b) = input.at<uchar>(a, b);
 			}
 		}
-
+		if (output.empty())error("invalid output image with the function call: ", "BIInterpol()");
 	}
 
 
 
-	void Demosaic::BtesSeparate(const Mat input, std::vector<cv::Mat>&output) {
-		Mat im0, im45, im90, im135;
+	void Demosaic::BtesSeparate(const Mat &input, std::vector<cv::Mat>&output)
+		//this function separate the value of the raw polarization image file into 4 different angles of the polarizer
+			//this function retain the size of the image after separation per polarizer angle
+	{
+		if (input.empty())error("invalid input image with the function call: ", "BtesSeparate()");
+		Mat im0, im45, im90, im135; //this is image at different polarizer angle
 		int rows = input.rows;
 		int cols = input.cols;
 		im0.create(rows, cols, CV_8U);
@@ -403,14 +385,14 @@ namespace Demo {
 				uchar *pOutput1135 = im135.ptr<uchar>(r) + c;
 				uchar *pOutput2135 = im135.ptr<uchar>(r + 1) + c;
 
-				uchar *pKernel10 = Kernel0.ptr<uchar>(0);
-				uchar *pKernel20 = Kernel0.ptr<uchar>(1);
-				uchar *pKernel145 = Kernel45.ptr<uchar>(0);
-				uchar *pKernel245 = Kernel45.ptr<uchar>(1);
-				uchar *pKernel190 = Kernel90.ptr<uchar>(0);
-				uchar *pKernel290 = Kernel90.ptr<uchar>(1);
-				uchar *pKernel1135 = Kernel135.ptr<uchar>(0);
-				uchar *pKernel2135 = Kernel135.ptr<uchar>(1);
+				uchar *pKernel10 = orientPolAngle.at(0).ptr<uchar>(0);
+				uchar *pKernel20 = orientPolAngle.at(0).ptr<uchar>(1);
+				uchar *pKernel145 = orientPolAngle.at(45).ptr<uchar>(0);
+				uchar *pKernel245 = orientPolAngle.at(45).ptr<uchar>(1);
+				uchar *pKernel190 = orientPolAngle.at(90).ptr<uchar>(0);
+				uchar *pKernel290 = orientPolAngle.at(90).ptr<uchar>(1);
+				uchar *pKernel1135 = orientPolAngle.at(135).ptr<uchar>(0);
+				uchar *pKernel2135 = orientPolAngle.at(135).ptr<uchar>(1);
 
 				for (int k = 0; k < 2; ++k)
 				{
@@ -456,36 +438,46 @@ namespace Demo {
 		}
 
 		output.clear();
+		if (im0.empty())error("invalid output image at im0 with the function call: ", "BtesSeparate()");
+		if (im45.empty())error("invalid output image at im45 with the function call: ", "BtesSeparate()");
+		if (im135.empty())error("invalid output image at im135 with the function call: ", "BtesSeparate()");
+		if (im90.empty())error("invalid output image at im90 with the function call: ", "BtesSeparate()");
 		output.push_back(im0);
 		output.push_back(im45);
 		output.push_back(im90);
 		output.push_back(im135);
 	}
 
-	int Demosaic::Initialize() {
+	void Demosaic::Initialize() {
 		// --- second Angle ----------------------------------------
-		uchar filter0[2 * 2] = { 0, 1,
+		uchar filter01[2 * 2] = { 0, 1,
 			0, 0 };
 
 
 		// --- first Angle ----------------------------------------
-		uchar filter45[2 * 2] = { 1, 0,
+		uchar filter00[2 * 2] = { 1, 0,
 			0, 0 };
 
 
 		// ---third Angle----------------------------------------
-		uchar filter90[2 * 2] = { 0, 0,
+		uchar filter10[2 * 2] = { 0, 0,
 			1, 0 };
 
 		// --- forth Angle----------------------------------------
-		uchar filter135[2 * 2] = { 0, 0,
+		uchar filter11[2 * 2] = { 0, 0,
 			0, 1 };
 
-		Kernel0 = Mat(2, 2, CV_8U, filter0).clone();
-		Kernel45 = Mat(2, 2, CV_8U, filter45).clone();
-		Kernel90 = Mat(2, 2, CV_8U, filter90).clone();
-		Kernel135 = Mat(2, 2, CV_8U, filter135).clone();
-		return 0;
+		Kernel00 = Mat(2, 2, CV_8U, filter00).clone();
+		Kernel11 = Mat(2, 2, CV_8U, filter11).clone();
+		Kernel10 = Mat(2, 2, CV_8U, filter10).clone();
+		Kernel01 = Mat(2, 2, CV_8U, filter01).clone();
+
+		//map the output kernel to the correstponding polarizer orientation based on the parameter settings 
+		orientPolAngle[myParameters()->orientPolAngleR0C0] = Kernel00.clone();
+		orientPolAngle[myParameters()->orientPolAngleR0C1] = Kernel01.clone();
+		orientPolAngle[myParameters()->orientPolAngleR1C0] = Kernel10.clone();
+		orientPolAngle[myParameters()->orientPolAngleR1C1] = Kernel11.clone();
+
 	}
 
 }
