@@ -112,7 +112,7 @@ namespace POL {
 				s.flag);
 		}
 
-		cout << "Re-projection error reported by calibrateCamera: " << rms << endl;
+		//cout << "Re-projection error reported by calibrateCamera: " << rms << endl;
 
 		bool ok = checkRange(cameraMatrix) && checkRange(distCoeffs);
 
@@ -249,8 +249,8 @@ namespace POL {
 
 		bool ok = runCalibration(s, imageSize, cameraMatrix, distCoeffs, imagePoints, rvecs, tvecs, reprojErrs,
 			totalAvgErr);
-		cout << (ok ? "Calibration succeeded" : "Calibration failed")
-			<< ". avg re projection error = " << totalAvgErr << endl;
+		//cout << (ok ? "Calibration succeeded" : "Calibration failed")
+		//	<< ". avg re projection error = " << totalAvgErr << endl;
 		s.imHeight = imageSize.height;
 		s.imWidth = imageSize.width;
 		myParameters()->imgHeight = s.imHeight;

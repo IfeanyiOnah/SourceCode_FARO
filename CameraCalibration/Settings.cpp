@@ -5,7 +5,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/foreach.hpp>
-#include "polarizationBase.h"
+#include "Polarization.h"
 namespace POL {
 
 	Settings::Settings() : goodInput(false)
@@ -90,7 +90,7 @@ namespace POL {
 			cerr << "Invalid number of frames " << nrFrames << endl;
 			goodInput = false;
 		}
-		if (!(v_raw_sep == polarizationBase::RAW || v_raw_sep == polarizationBase::SEPARATED))
+		if (!(v_raw_sep == Polarization::RAW || v_raw_sep == Polarization::SEPARATED))
 		{
 			error("invalid calibration image type: ", "Please enter 'raw' or 'sep' at the settings file");
 			goodInput = false;

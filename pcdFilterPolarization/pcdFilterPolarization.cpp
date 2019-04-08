@@ -14,15 +14,15 @@ namespace pt = boost::property_tree;
 
 namespace POL {
 
-	void pcdFilterPolarization::filter(int argv,  const string &filename) {
+	void pcdFilterPolarization::filter(int argv, char **argc) {
 
 		//check if the input arguement is passed
 		if (argv != 2) {
-			error("Error: Invalid input detected\n");
+			error("Error: Invalid input file: filter()");
 		}
 
 		//initialize the algorithm from settings file
-		setUp(filename);
+		setUp(argc[1]);
 
 		//read the image file and demosaic the image
 		Demosaic demo(v_demosaic_method);
@@ -30,7 +30,7 @@ namespace POL {
 
 		//caliberate camera
 		camera_Calibration calib;
-		camCalibration(filename, calib);
+		camCalibration(argc[1], calib);
 
 		//undistort the image
 		exeUndist(demo,calib);
@@ -56,7 +56,7 @@ namespace POL {
 			cv::Size(v_morphKernSize, v_morphKernSize)));
 
 		//remove the points in the point cloud detected by the mask
-		//TrimPointCloud(objPol, objTrans);
+		TrimPointCloud(objPol, objTrans);
 
 		//save the filtered point cloud as well as the mask revealing the areas affected by multireflection
 		SaveMetaData(objTrans);
@@ -558,7 +558,8 @@ namespace POL {
 
 	void pcdFilterPolarization::SaveMetaData(const Transformation& Trans) {
 		int cont = 1;
-		ofstream myfile("MetaData.txt", std::ios::trunc);
+		string fil = v_pcdOutputFileName + ".txt";
+		ofstream myfile(fil, std::ios::trunc);
 
 		if (myfile) {
 			myfile << "X" << "\t" << "Y" << "\t" << "Z" << "\t" << "R" << "\t" << "G" << "\t" << "B"
@@ -609,7 +610,7 @@ namespace POL {
 			}
 
 		}
-		else error("unable to open metadata info file");
+		else error("unable to open given output file info file");
 	}
 
 	void pcdFilterPolarization::setUp(const string &filename) {
@@ -666,6 +667,7 @@ namespace POL {
 						else if (f.first == "StdErrMeanKernSize")stringstream(f.second.data()) >> v_stdErrMeanKernSize;
 						else if (f.first == "MorphKernSize")stringstream(f.second.data()) >> v_morphKernSize;
 						else if (f.first == "CalibrateCam")stringstream(f.second.data()) >> v_calibrateCam;
+						else if (f.first == "OutputfileName")stringstream(f.second.data()) >> v_pcdOutputFileName;
 					}
 				}
 				else if (v.first == "camera_calibration")//check the settings for only output filename for the calibration
